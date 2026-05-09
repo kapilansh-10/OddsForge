@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  passwordHash  String
+  createdAt     DateTime      @default(now())
+  wallet        Wallet?
+  orders        Order[]
+  positions     Position[]
+  ledgerEntries LedgerEntry[]
+}
+
+model Wallet {
+  id        String @id @default(cuid())
+  userId    String @unique
+  available BigInt @default(0)
+  reserved  BigInt @default(0)
+  user      User   @relation(fields: [userId], references: [id])
+}
+
+model Market {
+  id         String       @id @default(cuid())
+  question   String
+  status     MarketStatus @default(OPEN)
+  resolvedTo Outcome?
+  createdAt  DateTime     @default(now())
+  closedAt   DateTime?
+  orders     Order[]
+  positions  Position[]
+}
+
+model Order {
+  id        String      @id @default(cuid())
+  userId    String
+  marketId  String
+  side      Side
+  outcome   Outcome
+  price     Int
+  quantity  Int
+  filled    Int         @default(0)
+  status    OrderStatus @default(OPEN)
+  createdAt DateTime    @default(now())
+  user      User        @relation(fields: [userId], references: [id])
+  market    Market      @relation(fields: [marketId], references: [id])
+}
+
+model Position {
+  id       String  @id @default(cuid())
+  userId   String
+  marketId String
+  outcome  Outcome
+  shares   Int     @default(0)
+  avgPrice Decimal @default(0)
+  user     User    @relation(fields: [userId], references: [id])
+  market   Market  @relation(fields: [marketId], references: [id])
+
+  @@unique([userId, marketId, outcome])
+}
+
+model LedgerEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  amount    BigInt
+  before    BigInt
+  after     BigInt
+  meta      Json?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+enum MarketStatus {
+  OPEN
+  CLOSED
+  RESOLVED
+}
+
+enum Outcome {
+  YES
+  NO
+}
+
+enum Side {
+  BUY
+  SELL
+}
+
+enum OrderStatus {
+  OPEN
+  PARTIAL
+  FILLED
+  CANCELED
+}
