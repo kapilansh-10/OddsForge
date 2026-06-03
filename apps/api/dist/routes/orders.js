@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
 const express_1 = require("express");
 const prisma_1 = require("../lib/prisma");
+const engine_1 = require("../matching/engine");
 const auth_1 = require("../middleware/auth");
 const router = (0, express_1.Router)();
 function isSide(value) {
@@ -20,10 +21,6 @@ router.post("/", auth_1.requireAuth, async (req, res) => {
         }
         if (!isSide(side)) {
             res.status(400).json({ error: "Side must be BUY or SELL" });
-            return;
-        }
-        if (side !== client_1.Side.BUY) {
-            res.status(400).json({ error: "SELL orders are not supported yet" });
             return;
         }
         if (!isOutcome(outcome)) {
@@ -57,35 +54,37 @@ router.post("/", auth_1.requireAuth, async (req, res) => {
             if (!wallet) {
                 return { error: "Wallet not found" };
             }
-            const cost = BigInt(price) * BigInt(quantity);
-            if (wallet.available < cost) {
-                return { error: "Insufficient funds" };
-            }
-            const before = wallet.available;
-            const after = before - cost;
-            await tx.wallet.update({
-                where: { userId },
-                data: {
-                    available: after,
-                    reserved: wallet.reserved + cost
+            if (side === client_1.Side.BUY) {
+                const cost = BigInt(price) * BigInt(quantity);
+                if (wallet.available < cost) {
+                    return { error: "Insufficient funds" };
                 }
-            });
-            await tx.ledgerEntry.create({
-                data: {
-                    userId,
-                    type: "ORDER_RESERVED",
-                    amount: cost,
-                    before,
-                    after,
-                    meta: {
-                        marketId,
-                        side,
-                        outcome,
-                        price,
-                        quantity
+                const before = wallet.available;
+                const after = before - cost;
+                await tx.wallet.update({
+                    where: { userId },
+                    data: {
+                        available: after,
+                        reserved: wallet.reserved + cost
                     }
-                }
-            });
+                });
+                await tx.ledgerEntry.create({
+                    data: {
+                        userId,
+                        type: "ORDER_RESERVED",
+                        amount: cost,
+                        before,
+                        after,
+                        meta: {
+                            marketId,
+                            side,
+                            outcome,
+                            price,
+                            quantity
+                        }
+                    }
+                });
+            }
             const order = await tx.order.create({
                 data: {
                     userId,
@@ -97,7 +96,11 @@ router.post("/", auth_1.requireAuth, async (req, res) => {
                     status: client_1.OrderStatus.OPEN
                 }
             });
-            return { order };
+            await (0, engine_1.matchOrder)(order.id, tx);
+            const finalOrder = await tx.order.findUniqueOrThrow({
+                where: { id: order.id }
+            });
+            return { order: finalOrder };
         }, { isolationLevel: client_1.Prisma.TransactionIsolationLevel.Serializable });
         if ("error" in result) {
             const status = result.error === "Insufficient funds" ? 400 : 404;

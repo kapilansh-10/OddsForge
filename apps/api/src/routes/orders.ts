@@ -1,6 +1,7 @@
 import { OrderStatus, Outcome, Prisma, Side } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
+import { matchOrder } from "../matching/engine";
 import { requireAuth } from "../middleware/auth";
 
 const router = Router();
@@ -30,11 +31,6 @@ router.post("/", requireAuth, async (req, res) => {
 
     if (!isSide(side)) {
       res.status(400).json({ error: "Side must be BUY or SELL" });
-      return;
-    }
-
-    if (side !== Side.BUY) {
-      res.status(400).json({ error: "SELL orders are not supported yet" });
       return;
     }
 
@@ -79,39 +75,41 @@ router.post("/", requireAuth, async (req, res) => {
           return { error: "Wallet not found" as const };
         }
 
-        const cost = BigInt(price) * BigInt(quantity);
+        if (side === Side.BUY) {
+          const cost = BigInt(price) * BigInt(quantity);
 
-        if (wallet.available < cost) {
-          return { error: "Insufficient funds" as const };
-        }
-
-        const before = wallet.available;
-        const after = before - cost;
-
-        await tx.wallet.update({
-          where: { userId },
-          data: {
-            available: after,
-            reserved: wallet.reserved + cost
+          if (wallet.available < cost) {
+            return { error: "Insufficient funds" as const };
           }
-        });
 
-        await tx.ledgerEntry.create({
-          data: {
-            userId,
-            type: "ORDER_RESERVED",
-            amount: cost,
-            before,
-            after,
-            meta: {
-              marketId,
-              side,
-              outcome,
-              price,
-              quantity
+          const before = wallet.available;
+          const after = before - cost;
+
+          await tx.wallet.update({
+            where: { userId },
+            data: {
+              available: after,
+              reserved: wallet.reserved + cost
             }
-          }
-        });
+          });
+
+          await tx.ledgerEntry.create({
+            data: {
+              userId,
+              type: "ORDER_RESERVED",
+              amount: cost,
+              before,
+              after,
+              meta: {
+                marketId,
+                side,
+                outcome,
+                price,
+                quantity
+              }
+            }
+          });
+        }
 
         const order = await tx.order.create({
           data: {
@@ -125,7 +123,13 @@ router.post("/", requireAuth, async (req, res) => {
           }
         });
 
-        return { order };
+        await matchOrder(order.id, tx);
+
+        const finalOrder = await tx.order.findUniqueOrThrow({
+          where: { id: order.id }
+        });
+
+        return { order: finalOrder };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     );
