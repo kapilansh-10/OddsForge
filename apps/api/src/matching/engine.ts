@@ -1,4 +1,5 @@
 import { Order, OrderStatus, Prisma, Side } from "@prisma/client";
+import { io } from "../lib/socket";
 
 function nextStatus(filled: number, quantity: number): OrderStatus {
   return filled >= quantity ? OrderStatus.FILLED : OrderStatus.PARTIAL;
@@ -133,12 +134,14 @@ async function executeTrade(
 
   const newOrderFilled = newOrder.filled + fillQty;
   const matchedOrderFilled = matchedOrder.filled + fillQty;
+  const newOrderStatus = nextStatus(newOrderFilled, newOrder.quantity);
+  const matchedOrderStatus = nextStatus(matchedOrderFilled, matchedOrder.quantity);
 
   await tx.order.update({
     where: { id: newOrder.id },
     data: {
       filled: newOrderFilled,
-      status: nextStatus(newOrderFilled, newOrder.quantity)
+      status: newOrderStatus
     }
   });
 
@@ -146,7 +149,7 @@ async function executeTrade(
     where: { id: matchedOrder.id },
     data: {
       filled: matchedOrderFilled,
-      status: nextStatus(matchedOrderFilled, matchedOrder.quantity)
+      status: matchedOrderStatus
     }
   });
 
@@ -170,6 +173,45 @@ async function executeTrade(
       after: sellerAvailableAfter,
       meta: tradeMeta(matchedOrder.id, fillQty, tradePrice)
     }
+  });
+
+  const buyerFilled = buyerOrder.id === newOrder.id ? newOrderFilled : matchedOrderFilled;
+  const buyerStatus = buyerOrder.id === newOrder.id ? newOrderStatus : matchedOrderStatus;
+  const sellerFilled = sellerOrder.id === newOrder.id ? newOrderFilled : matchedOrderFilled;
+  const sellerStatus = sellerOrder.id === newOrder.id ? newOrderStatus : matchedOrderStatus;
+
+  io.to(`market:${buyerOrder.marketId}`).emit("price-update", {
+    marketId: buyerOrder.marketId,
+    outcome: buyerOrder.outcome,
+    price: tradePrice,
+    quantity: fillQty,
+    timestamp: new Date().toISOString()
+  });
+
+  io.to(`user:${buyerOrder.userId}`).emit("order-update", {
+    orderId: buyerOrder.id,
+    status: buyerStatus,
+    filled: buyerFilled,
+    fillQty,
+    tradePrice
+  });
+
+  io.to(`user:${sellerOrder.userId}`).emit("order-update", {
+    orderId: sellerOrder.id,
+    status: sellerStatus,
+    filled: sellerFilled,
+    fillQty,
+    tradePrice
+  });
+
+  io.to(`user:${buyerOrder.userId}`).emit("wallet-update", {
+    available: buyerReservedAfter.toString(),
+    type: "TRADE_DEBIT"
+  });
+
+  io.to(`user:${sellerOrder.userId}`).emit("wallet-update", {
+    available: sellerAvailableAfter.toString(),
+    type: "TRADE_CREDIT"
   });
 }
 

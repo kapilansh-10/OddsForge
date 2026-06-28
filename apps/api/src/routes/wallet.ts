@@ -62,7 +62,7 @@ router.post("/deposit", requireAuth, async (req, res) => {
 
         return nextWallet;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      { timeout: 30000 }
     );
 
     if (!updatedWallet) {

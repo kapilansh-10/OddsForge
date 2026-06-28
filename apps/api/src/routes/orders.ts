@@ -131,7 +131,7 @@ router.post("/", requireAuth, async (req, res) => {
 
         return { order: finalOrder };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      { timeout: 30000 }
     );
 
     if ("error" in result) {
