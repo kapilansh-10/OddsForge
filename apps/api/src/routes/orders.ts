@@ -177,4 +177,98 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
+router.delete("/:id", requireAuth, async (req, res) => {
+  const userId = req.user?.userId;
+
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const result = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const order = await tx.order.findUnique({
+          where: { id: req.params.id as string }
+        });
+
+        if (!order) {
+          return { error: "Order not found" as const };
+        }
+
+        if (order.userId !== userId) {
+          return { error: "Forbidden" as const };
+        }
+
+        if (order.status !== OrderStatus.OPEN && order.status !== OrderStatus.PARTIAL) {
+          return { error: "Only OPEN or PARTIAL orders can be canceled" as const };
+        }
+
+        const refund = BigInt(order.quantity - order.filled) * BigInt(order.price);
+
+        const wallet = await tx.wallet.findUnique({
+          where: { userId }
+        });
+
+        if (!wallet) {
+          return { error: "Wallet not found" as const };
+        }
+
+        const before = wallet.available;
+        const after = before + refund;
+
+        await tx.wallet.update({
+          where: { userId },
+          data: {
+            available: after,
+            reserved: wallet.reserved - refund
+          }
+        });
+
+        await tx.ledgerEntry.create({
+          data: {
+            userId,
+            type: "ORDER_CANCELED",
+            amount: refund,
+            before,
+            after,
+            meta: {
+              orderId: order.id,
+              marketId: order.marketId,
+              side: order.side,
+              outcome: order.outcome,
+              price: order.price,
+              quantity: order.quantity,
+              filled: order.filled
+            }
+          }
+        });
+
+        const canceled = await tx.order.update({
+          where: { id: order.id },
+          data: { status: OrderStatus.CANCELED }
+        });
+
+        return { order: canceled };
+      },
+      { timeout: 30000 }
+    );
+
+    if ("error" in result) {
+      const err = result.error;
+      const status =
+        err === "Order not found" || err === "Wallet not found" ? 404
+        : err === "Forbidden" ? 403
+        : 400;
+      res.status(status).json({ error: err });
+      return;
+    }
+
+    res.json({ order: result.order });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to cancel order" });
+    console.error(error);
+  }
+});
+
 export default router;
