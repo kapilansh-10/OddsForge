@@ -14,7 +14,7 @@ interface Order {
   price: number;
   quantity: number;
   filled: number;
-  status: "OPEN" | "PARTIAL" | "FILLED" | "CANCELLED";
+  status: "OPEN" | "PARTIAL" | "FILLED" | "CANCELED";
 }
 
 interface Market {
@@ -30,7 +30,7 @@ const orderStatusStyle: Record<Order["status"], string> = {
   OPEN: "text-blue-400",
   PARTIAL: "text-yellow-400",
   FILLED: "text-green-400",
-  CANCELLED: "text-zinc-500",
+  CANCELED: "text-zinc-500",
 };
 
 export default function MarketDetailPage() {
@@ -55,6 +55,9 @@ export default function MarketDetailPage() {
   const [quantity, setQuantity] = useState<number>(1);
   const [submitting, setSubmitting] = useState(false);
   const [orderMessage, setOrderMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -135,6 +138,20 @@ export default function MarketDetailPage() {
     }
   };
 
+  const handleCancelOrder = async (orderId: string) => {
+    setCancelError(null);
+    setCancelingId(orderId);
+
+    try {
+      await api.delete(`/orders/${orderId}`);
+      await fetchOrders();
+    } catch {
+      setCancelError("Failed to cancel order");
+    } finally {
+      setCancelingId(null);
+    }
+  };
+
   if (!token) return null;
 
   if (marketLoading) {
@@ -146,6 +163,7 @@ export default function MarketDetailPage() {
   }
 
   const cost = price * quantity;
+  const openOrders = orders.filter((o) => o.status === "OPEN" || o.status === "PARTIAL");
 
   return (
     <div className="space-y-8">
@@ -166,6 +184,68 @@ export default function MarketDetailPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Order book - current user's open orders */}
+      <div>
+        <h2 className="font-semibold mb-4">Order Book</h2>
+
+        {ordersLoading && <p className="text-zinc-400 text-sm">Loading orders...</p>}
+
+        {!ordersLoading && openOrders.length === 0 && (
+          <p className="text-zinc-400 text-sm">You have no open orders in this market.</p>
+        )}
+
+        {cancelError && <p className="text-red-400 text-sm mb-2">{cancelError}</p>}
+
+        {!ordersLoading && openOrders.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-zinc-400 border-b border-zinc-700">
+                  <th className="text-left pb-2 pr-4">Outcome</th>
+                  <th className="text-left pb-2 pr-4">Side</th>
+                  <th className="text-left pb-2 pr-4">Price</th>
+                  <th className="text-left pb-2 pr-4">Qty</th>
+                  <th className="text-left pb-2 pr-4">Filled</th>
+                  <th className="text-left pb-2 pr-4">Status</th>
+                  <th className="text-left pb-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {openOrders.map((order) => (
+                  <tr key={order.id} className="border-b border-zinc-800">
+                    <td className="py-2 pr-4">{order.outcome}</td>
+                    <td className="py-2 pr-4">
+                      <span
+                        className={
+                          order.side === "BUY" ? "text-green-400" : "text-red-400"
+                        }
+                      >
+                        {order.side}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4 font-mono">{order.price}</td>
+                    <td className="py-2 pr-4 font-mono">{order.quantity}</td>
+                    <td className="py-2 pr-4 font-mono">{order.filled}</td>
+                    <td className={`py-2 pr-4 ${orderStatusStyle[order.status]}`}>
+                      {order.status}
+                    </td>
+                    <td className="py-2">
+                      <button
+                        onClick={() => handleCancelOrder(order.id)}
+                        disabled={cancelingId === order.id}
+                        className="text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:text-white hover:border-red-500 disabled:opacity-50 transition-colors"
+                      >
+                        {cancelingId === order.id ? "Canceling..." : "Cancel"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Order form */}
@@ -273,9 +353,9 @@ export default function MarketDetailPage() {
         </form>
       </div>
 
-      {/* My orders */}
+      {/* Order history */}
       <div>
-        <h2 className="font-semibold mb-4">My Orders</h2>
+        <h2 className="font-semibold mb-4">Order History</h2>
 
         {ordersLoading && <p className="text-zinc-400 text-sm">Loading orders...</p>}
 

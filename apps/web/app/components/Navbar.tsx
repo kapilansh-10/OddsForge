@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
 
 export default function Navbar() {
   const router = useRouter();
+  const pathname = usePathname();
   const { email, logout } = useAuthStore();
 
   const handleLogout = () => {
@@ -13,6 +14,11 @@ export default function Navbar() {
     localStorage.removeItem("token");
     router.push("/auth/login");
   };
+
+  const navLinks = [
+    { href: "/markets", label: "Markets" },
+    { href: "/wallet", label: "Wallet" },
+  ];
 
   return (
     <nav className="border-b border-zinc-800 bg-zinc-900">
@@ -22,18 +28,20 @@ export default function Navbar() {
         </Link>
 
         <div className="flex items-center gap-6">
-          <Link
-            href="/markets"
-            className="text-zinc-400 hover:text-white transition-colors text-sm"
-          >
-            Markets
-          </Link>
-          <Link
-            href="/wallet"
-            className="text-zinc-400 hover:text-white transition-colors text-sm"
-          >
-            Wallet
-          </Link>
+          {navLinks.map(({ href, label }) => {
+            const isActive = pathname === href || pathname?.startsWith(`${href}/`);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`text-sm transition-colors ${
+                  isActive ? "text-white font-medium" : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                {label}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-4">

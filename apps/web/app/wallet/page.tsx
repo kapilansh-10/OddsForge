@@ -125,6 +125,18 @@ export default function WalletPage() {
               required
               className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white focus:outline-none focus:border-zinc-500"
             />
+            <div className="flex gap-2 mt-2">
+              {[10, 50, 100, 500].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setAmount(preset)}
+                  className="px-3 py-1.5 rounded border border-zinc-700 text-sm text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors"
+                >
+                  +${preset}
+                </button>
+              ))}
+            </div>
           </div>
 
           {depositMessage && (
